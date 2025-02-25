@@ -1,0 +1,16 @@
+# Ignore compiled binaries and object files
+*.o
+*.out
+*.exe
+
+# Ignore debugging files
+*.gdb
+
+# Ignore build directories
+/build/
+/bin/
+/obj/
+
+# Ignore logs and temporary files
+*.log
+*.swp
