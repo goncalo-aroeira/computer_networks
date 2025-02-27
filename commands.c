@@ -1,92 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <time.h>
-
-#define MAX_BUFFER 256
-#define DEFAULT_SERVER_IP "193.136.138.142"
-#define DEFAULT_SERVER_PORT 59000
-#define MAX_NEIGHBORS 10
-
-// Structure for an NDN node
-typedef struct {
-    char ip[16];
-    int port;
-    int fd;
-    int ext_neighbor;
-    int safeguard;
-    int internal_neighbors[MAX_NEIGHBORS];
-    int num_internal_neighbors;
-} ndn_node;
-
-// Initialize a node
-void initialize_node(ndn_node *node, char *ip, int port) {
-    strcpy(node->ip, ip);
-    node->port = port;
-    node->fd = -1;
-    node->ext_neighbor = -1;
-    node->safeguard = -1;
-    node->num_internal_neighbors = 0;
-}
-
-// Send a UDP request and receive a response
-int send_udp_request(char *message, char *response, size_t response_size) {
-    int sockfd;
-    struct sockaddr_in server_addr;
-    socklen_t addrlen = sizeof(server_addr);
-    
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) {
-        perror("Error creating UDP socket");
-        return -1;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(DEFAULT_SERVER_PORT);
-    server_addr.sin_addr.s_addr = inet_addr(DEFAULT_SERVER_IP);
-
-    sendto(sockfd, message, strlen(message), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
-
-    struct timeval timeout = {3, 0};
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    
-    int received = recvfrom(sockfd, response, response_size, 0, (struct sockaddr *)&server_addr, &addrlen);
-    close(sockfd);
-    return received;
-}
-
-void process_tcp_messages(int client_fd) {
-    char buffer[MAX_BUFFER];
-    int bytes_received = recv(client_fd, buffer, MAX_BUFFER, 0);
-    if (bytes_received > 0) {
-        buffer[bytes_received] = '\0';
-
-        if (strncmp(buffer, "ENTRY", 5) == 0) {
-            char new_ip[16];
-            int new_port;
-            sscanf(buffer, "ENTRY %s %d", new_ip, &new_port);
-
-            printf("Received ENTRY request from %s:%d\n", new_ip, new_port);
-
-            // Update internal neighbor list
-            node.internal_neighbors[node.num_internal_neighbors++] = client_fd;
-            printf("Added %s:%d as an internal neighbor\n", new_ip, new_port);
-
-            // Set external neighbor if not already set
-            if (node.ext_neighbor == -1) {
-                node.ext_neighbor = client_fd;
-                printf("Setting external neighbor to %s:%d\n", new_ip, new_port);
-            }
-        }
-    }
-}
-
+#include "ndn.h"
 
 // Join a network via the server
 void join_network(ndn_node *node, char *network) {
@@ -165,22 +77,37 @@ void direct_join(ndn_node *node, char *network, char *connect_ip, int connect_po
     snprintf(message, MAX_BUFFER, "ENTRY %s %d\n", node->ip, node->port);
     send(sockfd, message, strlen(message), 0);
 
-    // Update node's own external neighbor
-    node->ext_neighbor = sockfd;
+    // Store the correct external neighbor (IP and Port)
+    strcpy(node->ext_neighbor_ip, connect_ip);
+    node->ext_neighbor_port = connect_port;
     printf("External neighbor set to %s:%d\n", connect_ip, connect_port);
 }
 
 
+
+
 // Show node topology
 void show_topology(ndn_node *node) {
-    printf("External neighbor: %d\n", node->ext_neighbor);
+    printf("External neighbor: ");
+    if (node->ext_neighbor_port != -1) {
+        printf("%s:%d", node->ext_neighbor_ip, node->ext_neighbor_port);
+    } else {
+        printf("-1");
+    }
+    printf("\n");
+
     printf("Safeguard: %d\n", node->safeguard);
+
     printf("Internal neighbors: ");
     for (int i = 0; i < node->num_internal_neighbors; i++) {
-        printf("%d ", node->internal_neighbors[i]);
+        printf("%s:%d ", node->internal_neighbors[i].ip, node->internal_neighbors[i].port);
     }
     printf("\n");
 }
+
+
+
+
 
 // Process user commands
 void process_command(char *command, ndn_node *node) {
@@ -199,23 +126,32 @@ void process_command(char *command, ndn_node *node) {
     }
 }
 
-int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s <IP> <PORT>\n", argv[0]);
-        return EXIT_FAILURE;
-    }
+void process_tcp_messages(int client_fd, ndn_node *node) {
+    char buffer[MAX_BUFFER];
+    int bytes_received = recv(client_fd, buffer, MAX_BUFFER, 0);
+    if (bytes_received > 0) {
+        buffer[bytes_received] = '\0';
 
-    ndn_node node;
-    initialize_node(&node, argv[1], atoi(argv[2]));
-    
-    char command[MAX_BUFFER];
-    while (1) {
-        printf("Enter command: ");
-        if (fgets(command, MAX_BUFFER, stdin) == NULL) {
-            perror("Error reading input");
+        if (strncmp(buffer, "ENTRY", 5) == 0) {
+            char new_ip[16];
+            int new_port;
+            sscanf(buffer, "ENTRY %s %d", new_ip, &new_port);
+
+            printf("Received ENTRY request from %s:%d\n", new_ip, new_port);
+
+            // If no external neighbor is set, assign this node as external
+            if (node->ext_neighbor_port == -1) {
+                strcpy(node->ext_neighbor_ip, new_ip);
+                node->ext_neighbor_port = new_port;
+                printf("Setting external neighbor to %s:%d\n", new_ip, new_port);
+            } else {
+                // Otherwise, add it as an internal neighbor
+                strcpy(node->internal_neighbors[node->num_internal_neighbors].ip, new_ip);
+                node->internal_neighbors[node->num_internal_neighbors].port = new_port;
+                node->num_internal_neighbors++;
+                printf("Added %s:%d as an internal neighbor\n", new_ip, new_port);
+            }
         }
-                process_command(command, &node);
     }
-    
-    return 0;
 }
+

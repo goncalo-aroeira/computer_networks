@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -O2
 TARGET = ndn_node
 
-SRC = ndn_first_delivery.c
+SRC = main.c commands.c aux_functions.c
 OBJ = $(SRC:.c=.o)
 
 all: $(TARGET)
