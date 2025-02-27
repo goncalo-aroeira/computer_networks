@@ -8,6 +8,9 @@
 #include <netdb.h>
 #include <time.h>
 #include <sys/select.h>
+#include <netdb.h>  // Para usar struct addrinfo e AI_PASSIVE
+#include <arpa/inet.h>  // Para usar struct sockaddr_in e funções de rede
+
 
 #define MAX_BUFFER 256
 #define DEFAULT_SERVER_IP "193.136.138.142"
